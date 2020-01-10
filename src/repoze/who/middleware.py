@@ -348,11 +348,6 @@ class StartResponseWrapper(object):
             if hasattr(write, 'close'):
                 write.close()
 
-def make_middleware(app, global_conf, config_file=None):
-    if config_file is None:
-        raise ValueError('config_file must be specified')
-    return PluggableAuthenticationMiddleware(app)
-
 def make_test_middleware(app, global_conf):
     """ Functionally equivalent to
 
@@ -399,7 +394,7 @@ def make_test_middleware(app, global_conf):
         io.write('%s:%s\n' % (name, password))
     io.seek(0)
     def cleartext_check(password, hashed):
-        return password == hashed
+        return password == hashed #pragma NO COVERAGE
     htpasswd = HTPasswdPlugin(io, cleartext_check)
     basicauth = BasicAuthPlugin('repoze.who')
     auth_tkt = AuthTktCookiePlugin('secret', 'auth_tkt')

@@ -1,15 +1,6 @@
 import unittest
 
-class Base(unittest.TestCase):
-    def _makeEnviron(self, kw=None):
-        environ = {}
-        environ['wsgi.version'] = (1,0)
-        if kw is not None:
-            environ.update(kw)
-        return environ
-
-
-class TestMiddleware(Base):
+class TestMiddleware(unittest.TestCase):
 
     def _getTargetClass(self):
         from repoze.who.middleware import PluggableAuthenticationMiddleware
@@ -21,7 +12,7 @@ class TestMiddleware(Base):
                  authenticators=None,
                  challengers=None,
                  classifier=None,
-                 mdproviders=None,                 
+                 mdproviders=None,
                  challenge_decider=None,
                  log_stream=None,
                  log_level=None,
@@ -53,7 +44,14 @@ class TestMiddleware(Base):
                                     log_stream,
                                     log_level=logging.DEBUG)
         return mw
-    
+
+    def _makeEnviron(self, kw=None):
+        environ = {}
+        environ['wsgi.version'] = (1,0)
+        if kw is not None:
+            environ.update(kw)
+        return environ
+
     def test_accepts_logger(self):
         import logging
         logger = logging.Logger('something')
@@ -290,17 +288,6 @@ class TestMiddleware(Base):
         self.assertEqual(creds['password'], 'password')
         self.assertEqual(userid, 0)
 
-    def test_challenge_noidentifier_noapp(self):
-        environ = self._makeEnviron()
-        challenger = DummyChallenger()
-        plugins = [ ('challenge', challenger) ]
-        mw = self._makeOne(challengers = plugins)
-        identity = {'login':'chris', 'password':'password'}
-        app = mw.challenge(environ, 'match', '401 Unauthorized',
-                           [], None, identity)
-        self.assertEqual(app, None)
-        self.assertEqual(environ['challenged'], app)
-
     def test_authenticate_success_multiresult_one_preauthenticated(self):
         environ = self._makeEnviron()
         mw = self._makeOne()
@@ -337,6 +324,17 @@ class TestMiddleware(Base):
         self.assertEqual(creds['login'], 'chris')
         self.assertEqual(creds['password'], 'password')
         self.assertEqual(userid, 'chris_id2')
+
+    def test_challenge_noidentifier_noapp(self):
+        environ = self._makeEnviron()
+        challenger = DummyChallenger()
+        plugins = [ ('challenge', challenger) ]
+        mw = self._makeOne(challengers = plugins)
+        identity = {'login':'chris', 'password':'password'}
+        app = mw.challenge(environ, 'match', '401 Unauthorized',
+                           [], None, identity)
+        self.assertEqual(app, None)
+        self.assertEqual(environ['challenged'], app)
 
     def test_challenge_noidentifier_withapp(self):
         environ = self._makeEnviron()
@@ -378,6 +376,20 @@ class TestMiddleware(Base):
         self.assertEqual(result, app)
         self.assertEqual(environ['challenged'], app)
         self.assertEqual(identifier.forgotten, identity)
+
+    def test_challenge_identifier_forget_headers(self):
+        FORGET_HEADERS = [('X-testing-forget', 'Oubliez!')]
+        environ = self._makeEnviron()
+        app = DummyApp()
+        challenger = DummyChallenger(app)
+        credentials = {'login':'chris', 'password':'password'}
+        identifier = DummyIdentifier(credentials,
+                                     forget_headers=FORGET_HEADERS)
+        plugins = [ ('challenge', challenger) ]
+        mw = self._makeOne(challengers = plugins)
+        identity = {'login':'chris', 'password':'password'}
+        result = mw.challenge(environ, 'match', '401 Unauthorized',
+                               [], identifier, identity)
 
     def test_multi_challenge_firstwins(self):
         environ = self._makeEnviron()
@@ -436,7 +448,7 @@ class TestMiddleware(Base):
         self.assertEqual(environ['challenged'], app2)
         self.assertEqual(identifier.forgotten, identity)
 
-    def test_add_metadata(self): 
+    def test_add_metadata(self):
         environ = self._makeEnviron()
         plugin1 = DummyMDProvider({'foo':'bar'})
         plugin2 = DummyMDProvider({'fuz':'baz'})
@@ -448,7 +460,7 @@ class TestMiddleware(Base):
         self.assertEqual(identity['foo'], 'bar')
         self.assertEqual(identity['fuz'], 'baz')
 
-    def test_add_metadata_w_classification(self): 
+    def test_add_metadata_w_classification(self):
         environ = self._makeEnviron()
         plugin1 = DummyMDProvider({'foo':'bar'})
         plugin2 = DummyMDProvider({'fuz':'baz'})
@@ -460,7 +472,7 @@ class TestMiddleware(Base):
         identity = {}
         mw.add_metadata(environ, classification, identity)
         self.assertEqual(identity['foo'], 'bar')
-        self.assertEqual(identity.get('fuz'), None)       
+        self.assertEqual(identity.get('fuz'), None)
 
     def test_call_remoteuser_already_set(self):
         environ = self._makeEnviron({'REMOTE_USER':'admin'})
@@ -503,7 +515,7 @@ class TestMiddleware(Base):
         self.assertEqual(result, ['body'])
         self.assertEqual(start_response.status, '200 OK')
         self.assertEqual(start_response.headers, headers)
-        
+
     def test_call_401_no_identifiers(self):
         environ = self._makeEnviron()
         headers = [('a', '1')]
@@ -749,7 +761,7 @@ class TestStartResponseWrapper(unittest.TestCase):
         self.assertEqual(wrapper.start_response, None)
         self.assertEqual(wrapper.headers, [])
         self.failUnless(wrapper.buffer)
-    
+
     def test_finish_response(self):
         statuses = []
         headerses = []
@@ -761,12 +773,12 @@ class TestStartResponseWrapper(unittest.TestCase):
         def close():
             closededs.append(True)
         write.close = close
-            
+
         def start_response(status, headers, exc_info=None):
             statuses.append(status)
             headerses.append(headers)
             return write
-            
+
         wrapper = self._makeOne(start_response)
         wrapper.status = '401 Unauthorized'
         wrapper.headers = [('a', '1')]
@@ -779,38 +791,6 @@ class TestStartResponseWrapper(unittest.TestCase):
         self.assertEqual(datases[0], 'written')
         self.assertEqual(closededs[0], True)
 
-class TestDefaultRequestClassifier(Base):
-
-    def _getFUT(self):
-        from repoze.who.classifiers import default_request_classifier
-        return default_request_classifier
-
-    def test_classify_dav_method(self):
-        classifier = self._getFUT()
-        environ = self._makeEnviron({'REQUEST_METHOD':'COPY'})
-        result = classifier(environ)
-        self.assertEqual(result, 'dav')
-
-    def test_classify_dav_useragent(self):
-        classifier = self._getFUT()
-        environ = self._makeEnviron({'HTTP_USER_AGENT':'WebDrive'})
-        result = classifier(environ)
-        self.assertEqual(result, 'dav')
-        
-    def test_classify_xmlpost(self):
-        classifier = self._getFUT()
-        environ = self._makeEnviron({'CONTENT_TYPE':'text/xml',
-                                     'REQUEST_METHOD':'POST'})
-        result = classifier(environ)
-        self.assertEqual(result, 'xmlpost')
-
-    def test_classify_browser(self):
-        classifier = self._getFUT()
-        environ = self._makeEnviron({'CONTENT_TYPE':'text/xml',
-                                     'REQUEST_METHOD':'GET'})
-        result = classifier(environ)
-        self.assertEqual(result, 'browser')
-
 class TestMakeRegistries(unittest.TestCase):
 
     def _getFUT(self):
@@ -822,7 +802,7 @@ class TestMakeRegistries(unittest.TestCase):
         iface_reg, name_reg = fn([], [], [], [])
         self.assertEqual(iface_reg, {})
         self.assertEqual(name_reg, {})
-        
+
     def test_brokenimpl(self):
         fn = self._getFUT()
         self.assertRaises(ValueError, fn, [(None, DummyApp())], [], [], [])
@@ -873,551 +853,6 @@ class TestIdentityDict(unittest.TestCase):
         self.failUnless(str(identity).startswith('<repoze.who identity'))
         self.assertEqual(identity['foo'], 1)
 
-class TestWhoConfig(unittest.TestCase):
-
-    def _getTargetClass(self):
-        from repoze.who.config import WhoConfig
-        return WhoConfig
-
-    def _makeOne(self, here='/', *args, **kw):
-        return self._getTargetClass()(here, *args, **kw)
-
-    def _getDummyPluginClass(self, iface):
-        from zope.interface import classImplements
-        if not iface.implementedBy(DummyPlugin):
-            classImplements(DummyPlugin, iface)
-        return DummyPlugin
-
-    def test_defaults_before_parse(self):
-        config = self._makeOne()
-        self.assertEqual(config.request_classifier, None)
-        self.assertEqual(config.challenge_decider, None)
-        self.assertEqual(config.remote_user_key, 'REMOTE_USER')
-        self.assertEqual(len(config.plugins), 0)
-        self.assertEqual(len(config.identifiers), 0)
-        self.assertEqual(len(config.authenticators), 0)
-        self.assertEqual(len(config.challengers), 0)
-        self.assertEqual(len(config.mdproviders), 0)
-
-    def test_parse_empty_string(self):
-        config = self._makeOne()
-        config.parse('')
-        self.assertEqual(config.request_classifier, None)
-        self.assertEqual(config.challenge_decider, None)
-        self.assertEqual(config.remote_user_key, 'REMOTE_USER')
-        self.assertEqual(len(config.plugins), 0)
-        self.assertEqual(len(config.identifiers), 0)
-        self.assertEqual(len(config.authenticators), 0)
-        self.assertEqual(len(config.challengers), 0)
-        self.assertEqual(len(config.mdproviders), 0)
-
-    def test_parse_empty_file(self):
-        from StringIO import StringIO
-        config = self._makeOne()
-        config.parse(StringIO())
-        self.assertEqual(config.request_classifier, None)
-        self.assertEqual(config.challenge_decider, None)
-        self.assertEqual(config.remote_user_key, 'REMOTE_USER')
-        self.assertEqual(len(config.plugins), 0)
-        self.assertEqual(len(config.identifiers), 0)
-        self.assertEqual(len(config.authenticators), 0)
-        self.assertEqual(len(config.challengers), 0)
-        self.assertEqual(len(config.mdproviders), 0)
-
-    def test_parse_plugins(self):
-        config = self._makeOne()
-        config.parse(PLUGINS_ONLY)
-        self.assertEqual(len(config.plugins), 2)
-        self.failUnless(isinstance(config.plugins['foo'],
-                                   DummyPlugin))
-        bar = config.plugins['bar']
-        self.failUnless(isinstance(bar, DummyPlugin))
-        self.assertEqual(bar.credentials, 'qux')
-
-    def test_parse_general_empty(self):
-        config = self._makeOne()
-        config.parse('[general]')
-        self.assertEqual(config.request_classifier, None)
-        self.assertEqual(config.challenge_decider, None)
-        self.assertEqual(config.remote_user_key, 'REMOTE_USER')
-        self.assertEqual(len(config.plugins), 0)
-
-    def test_parse_general_only(self):
-        from repoze.who.interfaces import IRequestClassifier
-        from repoze.who.interfaces import IChallengeDecider
-        class IDummy(IRequestClassifier, IChallengeDecider):
-            pass
-        PLUGIN_CLASS = self._getDummyPluginClass(IDummy)
-        config = self._makeOne()
-        config.parse(GENERAL_ONLY)
-        self.failUnless(isinstance(config.request_classifier, PLUGIN_CLASS))
-        self.failUnless(isinstance(config.challenge_decider, PLUGIN_CLASS))
-        self.assertEqual(config.remote_user_key, 'ANOTHER_REMOTE_USER')
-        self.assertEqual(len(config.plugins), 0)
-
-    def test_parse_general_with_plugins(self):
-        from repoze.who.interfaces import IRequestClassifier
-        from repoze.who.interfaces import IChallengeDecider
-        class IDummy(IRequestClassifier, IChallengeDecider):
-            pass
-        PLUGIN_CLASS = self._getDummyPluginClass(IDummy)
-        config = self._makeOne()
-        config.parse(GENERAL_WITH_PLUGINS)
-        self.failUnless(isinstance(config.request_classifier, PLUGIN_CLASS))
-        self.failUnless(isinstance(config.challenge_decider, PLUGIN_CLASS))
-
-    def test_parse_identifiers_only(self):
-        from repoze.who.interfaces import IIdentifier
-        PLUGIN_CLASS = self._getDummyPluginClass(IIdentifier)
-        config = self._makeOne()
-        config.parse(IDENTIFIERS_ONLY)
-        identifiers = config.identifiers
-        self.assertEqual(len(identifiers), 2)
-        first, second = identifiers
-        self.assertEqual(first[0], 'repoze.who.tests:DummyPlugin')
-        self.failUnless(isinstance(first[1], PLUGIN_CLASS))
-        self.assertEqual(len(first[1].classifications), 1)
-        self.assertEqual(first[1].classifications[IIdentifier], 'klass1')
-        self.assertEqual(second[0], 'repoze.who.tests:DummyPlugin')
-        self.failUnless(isinstance(second[1], PLUGIN_CLASS))
-
-    def test_parse_identifiers_with_plugins(self):
-        from repoze.who.interfaces import IIdentifier
-        PLUGIN_CLASS = self._getDummyPluginClass(IIdentifier)
-        config = self._makeOne()
-        config.parse(IDENTIFIERS_WITH_PLUGINS)
-        identifiers = config.identifiers
-        self.assertEqual(len(identifiers), 2)
-        first, second = identifiers
-        self.assertEqual(first[0], 'foo')
-        self.failUnless(isinstance(first[1], PLUGIN_CLASS))
-        self.assertEqual(len(first[1].classifications), 1)
-        self.assertEqual(first[1].classifications[IIdentifier], 'klass1')
-        self.assertEqual(second[0], 'bar')
-        self.failUnless(isinstance(second[1], PLUGIN_CLASS))
-
-    def test_parse_authenticators_only(self):
-        from repoze.who.interfaces import IAuthenticator
-        PLUGIN_CLASS = self._getDummyPluginClass(IAuthenticator)
-        config = self._makeOne()
-        config.parse(AUTHENTICATORS_ONLY)
-        authenticators = config.authenticators
-        self.assertEqual(len(authenticators), 2)
-        first, second = authenticators
-        self.assertEqual(first[0], 'repoze.who.tests:DummyPlugin')
-        self.failUnless(isinstance(first[1], PLUGIN_CLASS))
-        self.assertEqual(len(first[1].classifications), 1)
-        self.assertEqual(first[1].classifications[IAuthenticator], 'klass1')
-        self.assertEqual(second[0], 'repoze.who.tests:DummyPlugin')
-        self.failUnless(isinstance(second[1], PLUGIN_CLASS))
-
-    def test_parse_authenticators_with_plugins(self):
-        from repoze.who.interfaces import IAuthenticator
-        PLUGIN_CLASS = self._getDummyPluginClass(IAuthenticator)
-        config = self._makeOne()
-        config.parse(AUTHENTICATORS_WITH_PLUGINS)
-        authenticators = config.authenticators
-        self.assertEqual(len(authenticators), 2)
-        first, second = authenticators
-        self.assertEqual(first[0], 'foo')
-        self.failUnless(isinstance(first[1], PLUGIN_CLASS))
-        self.assertEqual(len(first[1].classifications), 1)
-        self.assertEqual(first[1].classifications[IAuthenticator], 'klass1')
-        self.assertEqual(second[0], 'bar')
-        self.failUnless(isinstance(second[1], PLUGIN_CLASS))
-
-    def test_parse_challengers_only(self):
-        from repoze.who.interfaces import IChallenger
-        PLUGIN_CLASS = self._getDummyPluginClass(IChallenger)
-        config = self._makeOne()
-        config.parse(CHALLENGERS_ONLY)
-        challengers = config.challengers
-        self.assertEqual(len(challengers), 2)
-        first, second = challengers
-        self.assertEqual(first[0], 'repoze.who.tests:DummyPlugin')
-        self.failUnless(isinstance(first[1], PLUGIN_CLASS))
-        self.assertEqual(len(first[1].classifications), 1)
-        self.assertEqual(first[1].classifications[IChallenger], 'klass1')
-        self.assertEqual(second[0], 'repoze.who.tests:DummyPlugin')
-        self.failUnless(isinstance(second[1], PLUGIN_CLASS))
-
-    def test_parse_challengers_with_plugins(self):
-        from repoze.who.interfaces import IChallenger
-        PLUGIN_CLASS = self._getDummyPluginClass(IChallenger)
-        config = self._makeOne()
-        config.parse(CHALLENGERS_WITH_PLUGINS)
-        challengers = config.challengers
-        self.assertEqual(len(challengers), 2)
-        first, second = challengers
-        self.assertEqual(first[0], 'foo')
-        self.failUnless(isinstance(first[1], PLUGIN_CLASS))
-        self.assertEqual(len(first[1].classifications), 1)
-        self.assertEqual(first[1].classifications[IChallenger], 'klass1')
-        self.assertEqual(second[0], 'bar')
-        self.failUnless(isinstance(second[1], PLUGIN_CLASS))
-
-    def test_parse_mdproviders_only(self):
-        from repoze.who.interfaces import IMetadataProvider
-        PLUGIN_CLASS = self._getDummyPluginClass(IMetadataProvider)
-        config = self._makeOne()
-        config.parse(MDPROVIDERS_ONLY)
-        mdproviders = config.mdproviders
-        self.assertEqual(len(mdproviders), 2)
-        first, second = mdproviders
-        self.assertEqual(first[0], 'repoze.who.tests:DummyPlugin')
-        self.failUnless(isinstance(first[1], PLUGIN_CLASS))
-        self.assertEqual(len(first[1].classifications), 1)
-        self.assertEqual(first[1].classifications[IMetadataProvider], 'klass1')
-        self.assertEqual(second[0], 'repoze.who.tests:DummyPlugin')
-        self.failUnless(isinstance(second[1], PLUGIN_CLASS))
-
-    def test_parse_mdproviders_with_plugins(self):
-        from repoze.who.interfaces import IMetadataProvider
-        PLUGIN_CLASS = self._getDummyPluginClass(IMetadataProvider)
-        config = self._makeOne()
-        config.parse(MDPROVIDERS_WITH_PLUGINS)
-        mdproviders = config.mdproviders
-        self.assertEqual(len(mdproviders), 2)
-        first, second = mdproviders
-        self.assertEqual(first[0], 'foo')
-        self.failUnless(isinstance(first[1], PLUGIN_CLASS))
-        self.assertEqual(len(first[1].classifications), 1)
-        self.assertEqual(first[1].classifications[IMetadataProvider], 'klass1')
-        self.assertEqual(second[0], 'bar')
-        self.failUnless(isinstance(second[1], PLUGIN_CLASS))
-
-class DummyPlugin:
-    def __init__(self, **kw):
-        self.__dict__.update(kw)
-
-PLUGINS_ONLY = """\
-[plugin:foo]
-use = repoze.who.tests:DummyPlugin
-
-[plugin:bar]
-use = repoze.who.tests:DummyPlugin
-credentials = qux
-"""
-
-GENERAL_ONLY = """\
-[general]
-request_classifier = repoze.who.tests:DummyPlugin
-challenge_decider = repoze.who.tests:DummyPlugin
-remote_user_key = ANOTHER_REMOTE_USER
-"""
-
-GENERAL_WITH_PLUGINS = """\
-[general]
-request_classifier = classifier
-challenge_decider = decider
-
-[plugin:classifier]
-use = repoze.who.tests:DummyPlugin
-
-[plugin:decider]
-use = repoze.who.tests:DummyPlugin
-"""
-
-IDENTIFIERS_ONLY = """\
-[identifiers]
-plugins = 
-    repoze.who.tests:DummyPlugin;klass1
-    repoze.who.tests:DummyPlugin
-"""
-
-IDENTIFIERS_WITH_PLUGINS = """\
-[identifiers]
-plugins = 
-    foo;klass1
-    bar
-
-[plugin:foo]
-use = repoze.who.tests:DummyPlugin
-
-[plugin:bar]
-use = repoze.who.tests:DummyPlugin
-"""
-
-AUTHENTICATORS_ONLY = """\
-[authenticators]
-plugins = 
-    repoze.who.tests:DummyPlugin;klass1
-    repoze.who.tests:DummyPlugin
-"""
-
-AUTHENTICATORS_WITH_PLUGINS = """\
-[authenticators]
-plugins = 
-    foo;klass1
-    bar
-
-[plugin:foo]
-use = repoze.who.tests:DummyPlugin
-
-[plugin:bar]
-use = repoze.who.tests:DummyPlugin
-"""
-
-CHALLENGERS_ONLY = """\
-[challengers]
-plugins = 
-    repoze.who.tests:DummyPlugin;klass1
-    repoze.who.tests:DummyPlugin
-"""
-
-CHALLENGERS_WITH_PLUGINS = """\
-[challengers]
-plugins = 
-    foo;klass1
-    bar
-
-[plugin:foo]
-use = repoze.who.tests:DummyPlugin
-
-[plugin:bar]
-use = repoze.who.tests:DummyPlugin
-"""
-
-MDPROVIDERS_ONLY = """\
-[mdproviders]
-plugins = 
-    repoze.who.tests:DummyPlugin;klass1
-    repoze.who.tests:DummyPlugin
-"""
-
-MDPROVIDERS_WITH_PLUGINS = """\
-[mdproviders]
-plugins = 
-    foo;klass1
-    bar
-
-[plugin:foo]
-use = repoze.who.tests:DummyPlugin
-
-[plugin:bar]
-use = repoze.who.tests:DummyPlugin
-"""
-
-class TestConfigMiddleware(unittest.TestCase):
-    tempfile = None
-
-    def setUp(self):
-        pass
-
-    def tearDown(self):
-        if self.tempfile is not None:
-            self.tempfile.close()
-
-    def _getFactory(self):
-        from repoze.who.config import make_middleware_with_config
-        return make_middleware_with_config
-
-    def _getTempfile(self, text):
-        import tempfile
-        tf = self.tempfile = tempfile.NamedTemporaryFile()
-        tf.write(text)
-        tf.flush()
-        return tf
-
-    def test_sample_config(self):
-        app = DummyApp()
-        factory = self._getFactory()
-        tempfile = self._getTempfile(SAMPLE_CONFIG)
-        global_cohf = {'here': '/'}
-        middleware = factory(app, global_cohf, config_file=tempfile.name,
-                             log_file='STDOUT', log_level='debug')
-        from repoze.who.interfaces import IIdentifier
-        from repoze.who.interfaces import IAuthenticator
-        from repoze.who.interfaces import IChallenger
-        self.assertEqual(len(middleware.registry[IIdentifier]), 3)
-        self.assertEqual(len(middleware.registry[IAuthenticator]), 1)
-        self.assertEqual(len(middleware.registry[IChallenger]), 2)
-        self.failUnless(middleware.logger, middleware.logger)
-        import logging
-        self.assertEqual(middleware.logger.getEffectiveLevel(), logging.DEBUG)
-
-SAMPLE_CONFIG = """\
-[plugin:form]
-use = repoze.who.plugins.form:make_plugin
-login_form_qs = __do_login
-rememberer_name = auth_tkt
-
-[plugin:auth_tkt]
-use = repoze.who.plugins.auth_tkt:make_plugin
-secret = s33kr1t
-cookie_name = oatmeal
-secure = False
-include_ip = True
-
-[plugin:basicauth]
-use = repoze.who.plugins.basicauth:make_plugin
-realm = 'sample'
-
-[plugin:htpasswd]
-use = repoze.who.plugins.htpasswd:make_plugin
-filename = %(here)s/etc/passwd
-check_fn = repoze.who.plugins.htpasswd:crypt_check
-
-[general]
-request_classifier = repoze.who.classifiers:default_request_classifier
-challenge_decider = repoze.who.classifiers:default_challenge_decider
-
-[identifiers]
-plugins = 
-    form;browser
-    auth_tkt
-    basicauth
-
-[authenticators]
-plugins = htpasswd
-
-[challengers]
-plugins =
-    form;browser
-    basicauth
-
-[mdproviders]
-plugins =
-
-"""
-
-class AuthenticatedPredicateTests(unittest.TestCase):
-
-    def _getFUT(self):
-        from repoze.who.restrict import authenticated_predicate
-        return authenticated_predicate()
-
-    def test___call___no_identity_returns_False(self):
-        predicate = self._getFUT()
-        environ = {}
-        self.failIf(predicate(environ))
-
-    def test___call___w_REMOTE_AUTH_returns_True(self):
-        predicate = self._getFUT()
-        environ = {'REMOTE_USER': 'fred'}
-        self.failUnless(predicate(environ))
-
-    def test___call___w_repoze_who_identity_returns_True(self):
-        predicate = self._getFUT()
-        environ = {'repoze.who.identity': {'login': 'fred'}}
-        self.failUnless(predicate(environ))
-
-class PredicateRestrictionTests(unittest.TestCase):
-
-    def _getTargetClass(self):
-        from repoze.who.restrict import PredicateRestriction
-        return PredicateRestriction
-
-    def _makeOne(self, app=None, **kw):
-        if app is None:
-            app = DummyApp()
-        return self._getTargetClass()(app, **kw)
-
-    def test___call___disabled_predicate_false_calls_app_not_predicate(self):
-        _tested = []
-        def _factory():
-            def _predicate(env):
-                _tested.append(env)
-                return False
-            return _predicate
-
-        _started = []
-        def _start_response(status, headers):
-            _started.append((status, headers))
-        environ = {'testing': True}
-
-        restrict = self._makeOne(predicate=_factory, enabled=False)
-        restrict(environ, _start_response)
-
-        self.assertEqual(len(_tested), 0)
-        self.assertEqual(len(_started), 0)
-        self.assertEqual(restrict.app.environ, environ)
-
-    def test___call___enabled_predicate_false_returns_401(self):
-        _tested = []
-        def _factory():
-            def _predicate(env):
-                _tested.append(env)
-                return False
-            return _predicate
-
-        _started = []
-        def _start_response(status, headers):
-            _started.append((status, headers))
-        environ = {'testing': True}
-
-        restrict = self._makeOne(predicate=_factory)
-        restrict(environ, _start_response)
-
-        self.assertEqual(len(_tested), 1)
-        self.assertEqual(len(_started), 1, _started)
-        self.assertEqual(_started[0][0], '401 Unauthorized')
-        self.assertEqual(restrict.app.environ, None)
-
-    def test___call___enabled_predicate_true_calls_app(self):
-        _tested = []
-        def _factory():
-            def _predicate(env):
-                _tested.append(env)
-                return True
-            return _predicate
-
-        _started = []
-        def _start_response(status, headers):
-            _started.append((status, headers))
-        environ = {'testing': True, 'REMOTE_USER': 'fred'}
-
-        restrict = self._makeOne(predicate=_factory)
-        restrict(environ, _start_response)
-
-        self.assertEqual(len(_tested), 1)
-        self.assertEqual(len(_started), 0)
-        self.assertEqual(restrict.app.environ, environ)
-
-class MakePredicateRestrictionTests(unittest.TestCase):
-
-    def _getFUT(self):
-        from repoze.who.restrict import make_predicate_restriction
-        return make_predicate_restriction
-
-    def test_non_string_predicate_no_args(self):
-        fut = self._getFUT()
-        app = DummyApp()
-        def _predicate(env):
-            return True
-        def _factory():
-            return _predicate
-
-        filter = fut(app, {}, predicate=_factory)
-
-        self.failUnless(filter.app is app)
-        self.failUnless(filter.predicate is _predicate)
-        self.failUnless(filter.enabled)
-
-    def test_disabled_non_string_predicate_w_args(self):
-        fut = self._getFUT()
-        app = DummyApp()
-
-        filter = fut(app, {}, predicate=DummyPredicate, enabled=False,
-                     foo='Foo')
-
-        self.failUnless(filter.app is app)
-        self.failUnless(isinstance(filter.predicate, DummyPredicate))
-        self.assertEqual(filter.predicate.foo, 'Foo')
-        self.failIf(filter.enabled)
-
-    def test_enabled_string_predicate_w_args(self):
-        fut = self._getFUT()
-        app = DummyApp()
-
-        filter = fut(app, {}, predicate='repoze.who.tests:DummyPredicate',
-                     enabled=True, foo='Foo')
-
-        self.failUnless(filter.app is app)
-        self.failUnless(isinstance(filter.predicate, DummyPredicate))
-        self.assertEqual(filter.predicate.foo, 'Foo')
-        self.failUnless(filter.enabled)
-
 class WrapGeneratorTests(unittest.TestCase):
 
     def _getFUT(self):
@@ -1435,14 +870,46 @@ class WrapGeneratorTests(unittest.TestCase):
         self.assertEqual(L, ['yo!'])
         self.assertEqual(list(newgen), ['a', 'b'])
 
-# XXX need make_middleware tests
+class TestMakeTestMiddleware(unittest.TestCase):
 
-class DummyPredicate:
-    def __init__(self, **kw):
-        self.__dict__.update(kw)
-    def __call__(self, env):
-        return True
+    def setUp(self):
+        import os
+        self._old_WHO_LOG = os.environ.get('WHO_LOG')
 
+    def tearDown(self):
+        import os
+        if self._old_WHO_LOG is not None:
+            os.environ['WHO_LOG'] = self._old_WHO_LOG
+        else:
+            if 'WHO_LOG' in os.environ:
+                del os.environ['WHO_LOG']
+
+    def _getFactory(self):
+        from repoze.who.middleware import make_test_middleware
+        return make_test_middleware
+
+    def test_it_no_WHO_LOG_in_environ(self):
+        from repoze.who.interfaces import IIdentifier
+        from repoze.who.interfaces import IAuthenticator
+        from repoze.who.interfaces import IChallenger
+        app = DummyApp()
+        factory = self._getFactory()
+        global_conf = {'here': '/'}
+        middleware = factory(app, global_conf)
+        self.assertEqual(len(middleware.registry[IIdentifier]), 3)
+        self.assertEqual(len(middleware.registry[IAuthenticator]), 1)
+        self.assertEqual(len(middleware.registry[IChallenger]), 2)
+        self.assertEqual(middleware.logger, None)
+
+    def test_it_w_WHO_LOG_in_environ(self):
+        import logging
+        import os
+        os.environ['WHO_LOG'] = '1'
+        app = DummyApp()
+        factory = self._getFactory()
+        global_conf = {'here': '/'}
+        middleware = factory(app, global_conf)
+        self.assertEqual(middleware.logger.getEffectiveLevel(), logging.DEBUG)
 
 class DummyApp:
     environ = None
@@ -1484,10 +951,14 @@ class DummyIdentityResetApp:
         environ['repoze.who.identity']['password'] = 'schooled'
         start_response(self.status, self.headers)
         return ['body']
-    
-class DummyRequestClassifier:
-    def __call__(self, environ):
-        return 'browser'
+
+class DummyChallenger:
+    def __init__(self, app=None):
+        self.app = app
+
+    def challenge(self, environ, status, app_headers, forget_headers):
+        environ['challenged'] = self.app
+        return self.app
 
 class DummyIdentifier:
     forgotten = False
@@ -1513,6 +984,28 @@ class DummyIdentifier:
         self.remembered = identity
         return self.remember_headers
 
+class DummyAuthenticator:
+    def __init__(self, userid=None):
+        self.userid = userid
+
+    def authenticate(self, environ, credentials):
+        if self.userid is None:
+            return credentials['login']
+        return self.userid
+
+class DummyFailAuthenticator:
+    def authenticate(self, environ, credentials):
+        return None
+
+class DummyRequestClassifier:
+    def __call__(self, environ):
+        return 'browser'
+
+class DummyChallengeDecider:
+    def __call__(self, environ, status, headers):
+        if status.startswith('401 '):
+            return True
+
 class DummyNoResultsIdentifier:
     def identify(self, environ):
         return None
@@ -1523,42 +1016,6 @@ class DummyNoResultsIdentifier:
     def forget(self, *arg, **kw):
         pass
 
-class DummyAuthenticator:
-    def __init__(self, userid=None):
-        self.userid = userid
-        
-    def authenticate(self, environ, credentials):
-        if self.userid is None:
-            return credentials['login']
-        return self.userid
-
-class DummyMultiPlugin:
-    pass
-
-class DummyFailAuthenticator:
-    def authenticate(self, environ, credentials):
-        return None
-
-class DummyChallenger:
-    def __init__(self, app=None):
-        self.app = app
-
-    def challenge(self, environ, status, app_headers, forget_headers):
-        environ['challenged'] = self.app
-        return self.app
-
-class DummyMDProvider:
-    def __init__(self, metadata=None):
-        self._metadata = metadata
-        
-    def add_metadata(self, environ, identity):
-        return identity.update(self._metadata)
-
-class DummyChallengeDecider:
-    def __call__(self, environ, status, headers):
-        if status.startswith('401 '):
-            return True
-
 class DummyStartResponse:
     def __call__(self, status, headers, exc_info=None):
         self.status = status
@@ -1566,3 +1023,12 @@ class DummyStartResponse:
         self.exc_info = exc_info
         return []
 
+class DummyMDProvider:
+    def __init__(self, metadata=None):
+        self._metadata = metadata
+
+    def add_metadata(self, environ, identity):
+        return identity.update(self._metadata)
+
+class DummyMultiPlugin:
+    pass

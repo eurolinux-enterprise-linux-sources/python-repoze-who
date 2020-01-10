@@ -16,6 +16,7 @@ from paste.response import header_value
 
 from zope.interface import implements
 
+from repoze.who.config import _resolve
 from repoze.who.interfaces import IChallenger
 from repoze.who.interfaces import IIdentifier
 
@@ -67,7 +68,8 @@ class FormPluginBase(object):
         return rememberer.forget(environ, identity)
 
     def __repr__(self):
-        return '<%s %s>' % (self.__class__.__name__, id(self))
+        return '<%s %s>' % (self.__class__.__name__,
+                            id(self)) #pragma NO COVERAGE
 
 class FormPlugin(FormPluginBase):
 
@@ -104,7 +106,11 @@ class FormPlugin(FormPluginBase):
             environ['QUERY_STRING'] = urllib.urlencode(query)
             environ['repoze.who.application'] = HTTPFound(
                                                     construct_url(environ))
-            return {'login':login, 'password':password}
+            credentials = {'login':login, 'password':password}
+            max_age = form.get('max_age', None)
+            if max_age is not None:
+                credentials['max_age'] = max_age
+            return credentials
 
         return None
 
@@ -166,12 +172,19 @@ class RedirectingFormPlugin(FormPluginBase):
             try:
                 login = form['login']
                 password = form['password']
+                max_age = form.get('max_age', None)
                 credentials = {
                     'login':form['login'],
-                    'password':form['password']
+                    'password':form['password'],
                     }
             except KeyError:
                 credentials = None
+
+            if credentials is not None:
+                max_age = form.get('max_age', None)
+                if max_age is not None:
+                    credentials['max_age'] = max_age
+            
             referer = environ.get('HTTP_REFERER', '/')
             came_from = form.get('came_from', referer)
             environ['repoze.who.application'] = HTTPFound(came_from)
@@ -194,14 +207,19 @@ class RedirectingFormPlugin(FormPluginBase):
         headers = headers + forget_headers + cookies
         return HTTPFound(headers=headers)
 
-def make_plugin(login_form_qs='__do_login', rememberer_name=None,
-                form=None):
+def make_plugin(login_form_qs='__do_login',
+                rememberer_name=None,
+                form=None,
+                formcallable=None,
+               ):
     if rememberer_name is None:
         raise ValueError(
             'must include rememberer key (name of another IIdentifier plugin)')
     if form is not None:
         form = open(form).read()
-    plugin = FormPlugin(login_form_qs, rememberer_name, form)
+    if isinstance(formcallable, str):
+        formcallable = _resolve(formcallable)
+    plugin = FormPlugin(login_form_qs, rememberer_name, form, formcallable)
     return plugin
 
 def make_redirecting_plugin(login_form_url=None,

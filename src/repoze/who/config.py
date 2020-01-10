@@ -19,9 +19,6 @@ def _resolve(name):
     if name:
         return EntryPoint.parse('x=%s' % name).load(False)
 
-def _isClassOrType(obj):
-    return type(obj) in (type(WhoConfig), type)
-
 class WhoConfig:
     def __init__(self, here):
         self.here = here
@@ -34,11 +31,12 @@ class WhoConfig:
         self.mdproviders = []
         self.remote_user_key = 'REMOTE_USER'
 
-    def _makePlugin(self, name, iface, **kw):
+    def _makePlugin(self, name, iface, options=None):
+        if options is None:
+            options = {}
         obj = _resolve(name)
         if not iface.providedBy(obj):
-        #if _isClassOrType(obj) and iface.implementedBy(obj):
-            obj = obj(**kw)
+            obj = obj(**options)
         return obj
 
     def _getPlugin(self, name, iface):
@@ -79,7 +77,7 @@ class WhoConfig:
             if 'use' in options:
                 name = options.pop('use')
                 del options['here']
-                obj = self._makePlugin(name, IPlugin, **options)
+                obj = self._makePlugin(name, IPlugin, options)
                 self.plugins[plugin_id] = obj
 
         if 'general' in cp.sections():

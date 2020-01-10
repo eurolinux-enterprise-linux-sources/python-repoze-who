@@ -1,5 +1,6 @@
---- setup.py.orig	2009-05-06 09:13:27.000000000 -0400
-+++ setup.py	2009-05-06 09:13:34.000000000 -0400
+diff -up setup.py.setup setup.py
+--- setup.py.setup	2009-11-05 16:34:21.000000000 -0500
++++ setup.py	2012-03-28 16:12:56.206207033 -0400
 @@ -14,9 +14,6 @@
  
  import os
@@ -9,4 +10,4 @@
 -
  from setuptools import setup, find_packages
  
- __version__ = '1.0.13'
+ __version__ = '1.0.18'

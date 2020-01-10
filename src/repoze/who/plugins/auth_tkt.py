@@ -1,6 +1,8 @@
+import datetime
 from codecs import utf_8_decode
 from codecs import utf_8_encode
 import os
+import time
 
 from paste.request import get_cookies
 from paste.auth import auth_tkt
@@ -8,6 +10,12 @@ from paste.auth import auth_tkt
 from zope.interface import implements
 
 from repoze.who.interfaces import IIdentifier
+
+_NOW_TESTING = None  # unit tests can replace
+def _now():  #pragma NO COVERAGE
+    if _NOW_TESTING is not None:
+        return _NOW_TESTING
+    return datetime.datetime.now()
 
 class AuthTktCookiePlugin(object):
 
@@ -25,11 +33,18 @@ class AuthTktCookiePlugin(object):
         }
     
     def __init__(self, secret, cookie_name='auth_tkt',
-                 secure=False, include_ip=False):
+                 secure=False, include_ip=False,
+                 timeout=None, reissue_time=None, userid_checker=None):
         self.secret = secret
         self.cookie_name = cookie_name
         self.include_ip = include_ip
         self.secure = secure
+        if timeout and ( (not reissue_time) or (reissue_time > timeout) ):
+            raise ValueError('When timeout is specified, reissue_time must '
+                             'be set to a lower value')
+        self.timeout = timeout
+        self.reissue_time = reissue_time
+        self.userid_checker = userid_checker
 
     # IIdentifier
     def identify(self, environ):
@@ -48,6 +63,12 @@ class AuthTktCookiePlugin(object):
             timestamp, userid, tokens, user_data = auth_tkt.parse_ticket(
                 self.secret, cookie.value, remote_addr)
         except auth_tkt.BadTicket:
+            return None
+
+        if self.userid_checker and not self.userid_checker(userid):
+            return None
+
+        if self.timeout and ( (timestamp + self.timeout) < time.time() ):
             return None
 
         userid_typename = 'userid_type:'
@@ -70,23 +91,33 @@ class AuthTktCookiePlugin(object):
         identity['userdata'] = user_data
         return identity
 
-    def _get_cookies(self, environ, value):
+    def _get_cookies(self, environ, value, max_age=None):
+        if max_age is not None:
+            later = _now() + datetime.timedelta(seconds=int(max_age))
+            # Wdy, DD-Mon-YY HH:MM:SS GMT
+            expires = later.strftime('%a, %d %b %Y %H:%M:%S')
+            # the Expires header is *required* at least for IE7 (IE7 does
+            # not respect Max-Age)
+            max_age = "; Max-Age=%s; Expires=%s" % (max_age, expires)
+        else:
+            max_age = ''
+
         cur_domain = environ.get('HTTP_HOST', environ.get('SERVER_NAME'))
         wild_domain = '.' + cur_domain
         cookies = [
-            ('Set-Cookie', '%s="%s"; Path=/' % (
-            self.cookie_name, value)),
-            ('Set-Cookie', '%s="%s"; Path=/; Domain=%s' % (
-            self.cookie_name, value, cur_domain)),
-            ('Set-Cookie', '%s="%s"; Path=/; Domain=%s' % (
-            self.cookie_name, value, wild_domain))
+            ('Set-Cookie', '%s="%s"; Path=/%s' % (
+            self.cookie_name, value, max_age)),
+            ('Set-Cookie', '%s="%s"; Path=/; Domain=%s%s' % (
+            self.cookie_name, value, cur_domain, max_age)),
+            ('Set-Cookie', '%s="%s"; Path=/; Domain=%s%s' % (
+            self.cookie_name, value, wild_domain, max_age))
             ]
         return cookies
 
     # IIdentifier
     def forget(self, environ, identity):
         # return a set of expires Set-Cookie headers
-        return self._get_cookies(environ, '""')
+        return self._get_cookies(environ, 'INVALID', 0)
     
     # IIdentifier
     def remember(self, environ, identity):
@@ -99,6 +130,7 @@ class AuthTktCookiePlugin(object):
         old_cookie = cookies.get(self.cookie_name)
         existing = cookies.get(self.cookie_name)
         old_cookie_value = getattr(existing, 'value', None)
+        max_age = identity.get('max_age', None)
 
         timestamp, userid, tokens, userdata = None, '', '', ''
 
@@ -126,7 +158,8 @@ class AuthTktCookiePlugin(object):
         old_data = (userid, tokens, userdata)
         new_data = (who_userid, who_tokens, who_userdata)
 
-        if old_data != new_data:
+        if old_data != new_data or (self.reissue_time and
+                ( (timestamp + self.reissue_time) < time.time() )):
             ticket = auth_tkt.AuthTicket(
                 self.secret,
                 who_userid,
@@ -141,10 +174,11 @@ class AuthTktCookiePlugin(object):
             wild_domain = '.' + cur_domain
             if old_cookie_value != new_cookie_value:
                 # return a set of Set-Cookie headers
-                return self._get_cookies(environ, new_cookie_value)
+                return self._get_cookies(environ, new_cookie_value, max_age)
 
     def __repr__(self):
-        return '<%s %s>' % (self.__class__.__name__, id(self))
+        return '<%s %s>' % (self.__class__.__name__,
+                            id(self)) #pragma NO COVERAGE
 
 def _bool(value):
     if isinstance(value, basestring):
@@ -156,7 +190,11 @@ def make_plugin(secret=None,
                 cookie_name='auth_tkt',
                 secure=False,
                 include_ip=False,
+                timeout=None,
+                reissue_time=None,
+                userid_checker=None,
                ):
+    from repoze.who.utils import resolveDotted
     if (secret is None and secretfile is None):
         raise ValueError("One of 'secret' or 'secretfile' must not be None.")
     if (secret is not None and secretfile is not None):
@@ -166,7 +204,19 @@ def make_plugin(secret=None,
         if not os.path.exists(secretfile):
             raise ValueError("No such 'secretfile': %s" % secretfile)
         secret = open(secretfile).read().strip()
-    plugin = AuthTktCookiePlugin(secret, cookie_name,
-                                 _bool(secure), _bool(include_ip))
+    if timeout:
+        timeout = int(timeout)
+    if reissue_time:
+        reissue_time = int(reissue_time)
+    if userid_checker is not None:
+        userid_checker = resolveDotted(userid_checker)
+    plugin = AuthTktCookiePlugin(secret,
+                                 cookie_name,
+                                 _bool(secure),
+                                 _bool(include_ip),
+                                 timeout,
+                                 reissue_time,
+                                 userid_checker,
+                                 )
     return plugin
 

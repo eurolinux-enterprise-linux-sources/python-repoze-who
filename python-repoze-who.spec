@@ -1,8 +1,8 @@
 %{!?python_sitelib: %define python_sitelib %(%{__python} -c "from distutils.sysconfig import get_python_lib; print get_python_lib()")}
 
 Name:           python-repoze-who
-Version:        1.0.13
-Release:        2%{?dist}
+Version:        1.0.18
+Release:        1%{?dist}
 Summary:        An identification and authentication framework for WSGI
 
 Group:          Development/Languages
@@ -14,6 +14,12 @@ BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 BuildArch:      noarch
 
 BuildRequires:  python-devel python-setuptools-devel
+
+# Needed for test suite:
+BuildRequires:  python-nose
+BuildRequires:  python-paste
+BuildRequires:  python-zope-interface
+
 Requires:       python-paste
 Requires:       python-setuptools
 Requires:       python-zope-interface
@@ -46,6 +52,8 @@ rm -rf $RPM_BUILD_ROOT
 %clean
 rm -rf $RPM_BUILD_ROOT
 
+%check
+nosetests -v
 
 %files
 %defattr(-,root,root,-)
@@ -54,6 +62,11 @@ rm -rf $RPM_BUILD_ROOT
 
 
 %changelog
+* Wed Mar 28 2012 David Malcolm <dmalcolm@redhat.com> - 1.0.18-1
+- rebase to 1.0.18
+Resolves: rhbz#639075
+- add a %%check phase, running the upstream test suite
+
 * Sun Jul 26 2009 Fedora Release Engineering <rel-eng@lists.fedoraproject.org> - 1.0.13-2
 - Rebuilt for https://fedoraproject.org/wiki/Fedora_12_Mass_Rebuild
 
